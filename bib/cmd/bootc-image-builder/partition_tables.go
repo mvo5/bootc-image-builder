@@ -25,7 +25,10 @@ const (
 // picked by someone in the past for unknown reasons. More in
 // e.g. https://github.com/osbuild/bootc-image-builder/pull/568 and
 // https://github.com/osbuild/images/pull/823
-const diskUuidOfUnknownOrigin = "D209C89E-EA5E-4FBD-B161-B461CCE297E0"
+const (
+	diskUuidOfUnknownOrigin    = "D209C89E-EA5E-4FBD-B161-B461CCE297E0"
+	dosDiskUiidOfUnknownOrigin = "0xc1748067"
+)
 
 // efiPartition defines the default ESP. See also
 // https://en.wikipedia.org/wiki/EFI_system_partition
@@ -98,8 +101,8 @@ var partitionTables = distro.BasePartitionTableMap{
 		},
 	},
 	arch.ARCH_AARCH64.String(): disk.PartitionTable{
-		UUID: diskUuidOfUnknownOrigin,
-		Type: "gpt",
+		UUID: dosDiskUiidOfUnknownOrigin,
+		Type: "dos",
 		Partitions: []disk.Partition{
 			efiPartition,
 			bootPartition,
