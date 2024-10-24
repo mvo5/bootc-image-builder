@@ -453,14 +453,15 @@ def test_iso_installs(image_type):
 
 
 def osinfo_for(it: ImageBuildResult, arch: str) -> str:
+    osinfo =  "Media is bootable.\nMedia is an installer for OS '{os}'\n"
     if it.container_ref == "quay.io/centos-bootc/centos-bootc:stream9":
-        return f"CentOS Stream 9 ({arch})"
+        os = f"CentOS Stream 9 ({arch})"
     if it.container_ref.startswith("quay.io/fedora/fedora-bootc:"):
         ver = it.container_ref.split(":", maxsplit=2)[1]
-        return f"Fedora Server {ver} ({arch})"
+        os = f"Fedora Server {ver} ({arch})"
+    if os:
+        return osinfo.format(os=os)"
     raise ValueError(f"cannot find osinfo_template for '{it.container_ref}'")
-
-
 @pytest.mark.skipif(platform.system() != "Linux", reason="osinfo detect test only runs on linux right now")
 @pytest.mark.parametrize("image_type", gen_testcases("anaconda-iso"), indirect=["image_type"])
 def test_iso_os_detection(image_type):
@@ -473,7 +474,7 @@ def test_iso_os_detection(image_type):
         installer_iso_path,
     ], capture_output=True, text=True, check=True)
     osinfo_output = result.stdout
-    expected_output = f"Media is bootable.\nMedia is an installer for OS '{osinfo_for(image_type, arch)}'\n"
+    expected_output = osinfo_for(image_type, arch)
     assert osinfo_output == expected_output
 
 
