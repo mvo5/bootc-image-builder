@@ -405,6 +405,8 @@ def build_images(shared_tmpdir, build_container, request, force_aws_upload, gpg_
             "-v", "/var/tmp/osbuild-test-store:/store",  # share the cache between builds
             "-v", "/var/lib/containers/storage:/var/lib/containers/storage",  # mount the host's containers storage
         ]
+        if tc.podman_terminal:
+            cmd.append("-t")
 
         if tc.sign:
             sign_container_image(gpg_conf, registry_conf, tc.container_ref)
@@ -430,6 +432,8 @@ def build_images(shared_tmpdir, build_container, request, force_aws_upload, gpg_
             f"--use-librepo={tc.use_librepo}",
             *tc.bib_rootfs_args()
         ])
+        if tc.podman_terminal:
+            cmd.append("--progress=term")
 
         # print the build command for easier tracing
         print(" ".join(cmd))
