@@ -170,12 +170,13 @@ func TestRunOSBuildWithProgressIncorrectJSON(t *testing.T) {
 	restore := progress.MockOsbuildCmd(makeFakeOsbuild(t, `echo osbuild-stdout-output
 >&2 echo osbuild-stderr-output
 >&3 echo invalid-json
+
+sleep infinity
 `))
 	defer restore()
 
 	pbar, err := progress.New("debug")
 	assert.NoError(t, err)
 	err = progress.RunOSBuild(pbar, []byte(`{"fake":"manifest"}`), "", "", nil, nil)
-	assert.EqualError(t, err, `errors parsing osbuild status:
-cannot scan line "invalid-json": invalid character 'i' looking for beginning of value`)
+	assert.EqualError(t, err, `error parsing osbuild status, please eport a bug and try with "--progress=verbose": cannot scan line "invalid-json": invalid character 'i' looking for beginning of value`)
 }

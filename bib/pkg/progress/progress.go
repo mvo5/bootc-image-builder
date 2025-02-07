@@ -372,14 +372,26 @@ func runOSBuildWithProgress(pb ProgressBar, manifest []byte, store, outputDirect
 		return fmt.Errorf("error starting osbuild: %v", err)
 	}
 	wp.Close()
+	defer func() {
+		// ensure osbuild is stopped even if we exit early
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+		}
+	}()
 
 	var tracesMsgs []string
-	var statusErrs []error
 	for {
 		st, err := osbuildStatus.Status()
 		if err != nil {
-			statusErrs = append(statusErrs, err)
-			continue
+			// This should never happen but if it does we try
+			// to be helpful. We need to exit here (and kill
+			// osbuild in the defer) or we would appear to be
+			// handing as cmd.Wait() would wait to finish but
+			// no progress or other message is reported. We
+			// can also not (in the general case) recover as
+			// the underlying osbuildStatus.scanner maybe in
+			// an unrecoverable state (like ErrTooBig).
+			return fmt.Errorf(`error parsing osbuild status, please eport a bug and try with "--progress=verbose": %w`, err)
 		}
 		if st == nil {
 			break
@@ -407,9 +419,6 @@ func runOSBuildWithProgress(pb ProgressBar, manifest []byte, store, outputDirect
 
 	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("error running osbuild: %w\nBuildLog:\n%s\nOutput:\n%s", err, strings.Join(tracesMsgs, "\n"), stdio.String())
-	}
-	if len(statusErrs) > 0 {
-		return fmt.Errorf("errors parsing osbuild status:\n%w", errors.Join(statusErrs...))
 	}
 
 	return nil
