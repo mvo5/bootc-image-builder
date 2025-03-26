@@ -170,6 +170,9 @@ minsize = 1000
 	assert.NoError(t, err)
 	assert.Equal(t, &buildconfig.BuildConfig{
 		Customizations: &blueprint.Customizations{
+			// XXX: the blueprint lib should really just return
+			// nil here :(
+			User: []blueprint.UserCustomization{},
 			Filesystem: []blueprint.FilesystemCustomization{
 				{
 					Mountpoint: "/",
