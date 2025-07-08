@@ -1,15 +1,21 @@
 package main
 
 import (
+	"bytes"
 	cryptorand "crypto/rand"
 	"errors"
 	"fmt"
 	"math"
 	"math/big"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v3"
 
 	"github.com/osbuild/images/pkg/arch"
 	"github.com/osbuild/images/pkg/blueprint"
@@ -18,15 +24,20 @@ import (
 	"github.com/osbuild/images/pkg/customizations/kickstart"
 	"github.com/osbuild/images/pkg/customizations/users"
 	"github.com/osbuild/images/pkg/disk"
+	"github.com/osbuild/images/pkg/distro"
+	"github.com/osbuild/images/pkg/distro/defs"
+	"github.com/osbuild/images/pkg/distrofactory"
 	"github.com/osbuild/images/pkg/image"
+	"github.com/osbuild/images/pkg/imagefilter"
 	"github.com/osbuild/images/pkg/manifest"
+	"github.com/osbuild/images/pkg/manifestgen"
 	"github.com/osbuild/images/pkg/osbuild"
 	"github.com/osbuild/images/pkg/pathpolicy"
 	"github.com/osbuild/images/pkg/platform"
 	"github.com/osbuild/images/pkg/policies"
+	"github.com/osbuild/images/pkg/reporegistry"
 	"github.com/osbuild/images/pkg/rpmmd"
 	"github.com/osbuild/images/pkg/runner"
-	"github.com/sirupsen/logrus"
 
 	"github.com/osbuild/bootc-image-builder/bib/internal/buildconfig"
 	"github.com/osbuild/bootc-image-builder/bib/internal/distrodef"
@@ -68,13 +79,227 @@ type ManifestConfig struct {
 	UseLibrepo bool
 }
 
-func Manifest(c *ManifestConfig) (*manifest.Manifest, error) {
+/*func Manifest(c *ManifestConfig) (*manifest.Manifest, error) {
 	rng := createRand()
 
 	if c.ImageTypes.BuildsISO() {
 		return manifestForISO(c, rng)
 	}
 	return manifestForDiskImage(c, rng)
+        }*/
+
+func writeAsYAML(path string, content any) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := yaml.NewEncoder(f).Encode(content); err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// XXX: move to real YAML for easier editing
+var bootcImageTypesContent = `
+.common:
+  disk_sizes:
+    default_required_partition_sizes: &default_required_dir_sizes
+      "/": 1_073_741_824     # 1 * datasizes.GiB
+      "/usr": 2_147_483_648  # 2 * datasizes.GiB
+  partitioning:
+    ids:
+      - &prep_partition_dosid "41"
+      - &filesystem_linux_dosid "83"
+      - &fat16_bdosid "06"
+    guids:
+      - &bios_boot_partition_guid "21686148-6449-6E6F-744E-656564454649"
+      - &efi_system_partition_guid "C12A7328-F81F-11D2-BA4B-00A0C93EC93B"
+      - &filesystem_data_guid "0FC63DAF-8483-4772-8E79-3D69D8477DE4"
+      - &xboot_ldr_partition_guid "BC13C2FF-59E6-4262-A352-B275FD6F7172"
+    # static UUIDs for partitions and filesystems
+    # NOTE(akoutsou): These are unnecessary and have stuck around since the
+    # beginning where (I believe) the goal was to have predictable,
+    # reproducible partition tables. They might be removed soon in favour of
+    # proper, random UUIDs, with reproducibility being controlled by fixing
+    # rng seeds.
+    uuids:
+      - &bios_boot_partition_uuid "FAC7F1FB-3E8D-4137-A512-961DE09A5549"
+      - &root_partition_uuid "6264D520-3FB9-423F-8AB8-7A0A8E3D3562"
+      - &data_partition_uuid "CB07C243-BC44-4717-853E-28852021225B"
+      - &efi_system_partition_uuid "68B2905B-DF3E-4FB3-80FA-49D1E773AA33"
+      - &efi_filesystem_uuid "7B77-95E7"
+
+image_types:
+  "qcow2":
+    # XXX: images hardcodes adding +".qcow2"
+    filename: "disk"
+    mime_type: "application/x-qemu-disk"
+    bootable: true
+    default_size: 10_737_418_240  # 10 GiB
+    image_func: "bootc_disk"
+    build_pipelines: ["build"]
+    payload_pipelines: ["image", "qcow2"]
+    exports: ["qcow2"]
+    required_partition_sizes: *default_required_dir_sizes
+    platforms:
+      - arch: "x86_64"
+        uefi_vendor: "fedora"
+        qcow2_compat: "1.1"
+        bootloader: "grub2"
+    partition_table:
+      x86_64:
+        uuid: "D209C89E-EA5E-4FBD-B161-B461CCE297E0"
+        type: "gpt"
+        partitions:
+          - &default_partition_table_part_bios
+            size: "1 MiB"
+            bootable: true
+            type: *bios_boot_partition_guid
+            uuid: *bios_boot_partition_uuid
+          - &default_partition_table_part_efi
+            size: "200 MiB"
+            type: *efi_system_partition_guid
+            uuid: *efi_system_partition_uuid
+            payload_type: "filesystem"
+            payload:
+              type: vfat
+              uuid: *efi_filesystem_uuid
+              mountpoint: "/boot/efi"
+              label: "ESP"
+              fstab_options: "defaults,uid=0,gid=0,umask=077,shortname=winnt"
+              fstab_freq: 0
+              fstab_passno: 2
+          - &default_partition_table_part_boot
+            size: "1 GiB"
+            type: *filesystem_data_guid
+            uuid: *data_partition_uuid
+            payload_type: "filesystem"
+            payload:
+              type: "ext4"
+              mountpoint: "/boot"
+              label: "boot"
+              fstab_options: "defaults"
+          - &default_partition_table_part_root
+            size: "2 GiB"
+            type: *filesystem_data_guid
+            uuid: *root_partition_uuid
+            payload_type: "filesystem"
+            payload: &default_partition_table_part_root_payload
+              type: "ext4"
+              label: "root"
+              mountpoint: "/"
+              fstab_options: "defaults"
+`
+
+// manifestViaGenericDistrosYAML writes a genericDistroYAML for the
+// given bootc container and let "images" do the work based on this
+// YAML. This is a bit roundabout, we could also just feed the data
+// directly into images. But lets do it like this for now because
+// we expect actual YAML files as part of the bootc containers for
+// advanced tweaking so dealing with files everywhere *might* be
+// nice (but this is not set in stone, really an exploration)
+func manifestViaGenericDistrosYAML(c *ManifestConfig, rng *rand.Rand) ([]byte, error) {
+	bootcDefsDir, err := os.MkdirTemp("", "bootc-defs")
+	if err != nil {
+		return nil, err
+	}
+	//defer os.RemoveAll(bootcDefsDir)
+	println("using ", bootcDefsDir)
+
+	imgTypesPath := filepath.Join(bootcDefsDir, "defs", "distro.yaml")
+	if err := os.MkdirAll(filepath.Dir(imgTypesPath), 0700); err != nil {
+		return nil, err
+	}
+
+	// create a "generic" distro based on the inputs
+	distroName := fmt.Sprintf("bootc-%s-%s", c.SourceInfo.OSRelease.ID, c.SourceInfo.OSRelease.VersionID)
+	bootcDistroPath := filepath.Join(bootcDefsDir, "distros.yaml")
+	bootcDistros := defs.DistrosYAML{
+		Distros: []defs.DistroYAML{
+			{
+				// XXX: check what else to export here
+				Name:      distroName,
+				OsVersion: c.SourceInfo.OSRelease.VersionID,
+				// XXX: hack
+				DefaultFSType: disk.FS_EXT4,
+
+				// XXX: what about distro_like here?
+
+				// use relative path here
+				DefsPath: "defs",
+				Runner:   runner.RunnerConf{Name: "org.osbuild.linux"},
+			},
+		},
+	}
+	if err := writeAsYAML(bootcDistroPath, bootcDistros); err != nil {
+		return nil, err
+	}
+	// XXX: create a fake repo registry, this is needed for compat
+	// with the "old" way of doing things in "images". Ideally we
+	// would have a way to do this with pure YAML but for now we
+	// need this
+	bootcReposPath := filepath.Join(bootcDefsDir, distroName+".json")
+	if err := os.WriteFile(bootcReposPath, []byte(`{"x86_64":[{"name": "fake"}]}`), 0644); err != nil {
+		return nil, err
+	}
+
+	// XXX: hack, put into YAML into images
+	if err := os.WriteFile(imgTypesPath, []byte(bootcImageTypesContent), 0644); err != nil {
+		return nil, err
+	}
+	// XXX: this triggers a warning currently, make this nicer
+	// XXX2: this overrides any existing experimental settings :(
+	os.Setenv("IMAGE_BUILDER_EXPERIMENTAL", "yamldir="+bootcDefsDir)
+	fac := distrofactory.NewDefault()
+	// XXX: slightly sad that we need this
+	repos, err := reporegistry.New([]string{bootcDefsDir}, nil)
+	if err != nil {
+		return nil, err
+	}
+	// XXX: when this goes into ibcli we can use "getOneImage()" here isntead
+	fmt.Println("requested image types:", c.ImageTypes)
+	imgTypeStr := "qcow2"
+	filter, err := imagefilter.New(fac, repos)
+	if err != nil {
+		return nil, err
+	}
+	res, err := filter.Filter([]string{
+		"distro:" + distroName,
+		"type:" + imgTypeStr,
+	}...)
+	if err != nil {
+		return nil, err
+	}
+	if len(res) != 1 {
+		return nil, fmt.Errorf("internal error: unexpected results for %q: %v", distroName, res)
+	}
+	img := res[0]
+	fmt.Printf("found image type: %+v\n", img)
+	// XXX: ibcli would just call generateManifest() here
+	var osbuildManifestBuf bytes.Buffer
+	mg, err := manifestgen.New(repos, &manifestgen.Options{Output: &osbuildManifestBuf})
+	if err != nil {
+		return nil, err
+	}
+
+	imgOpts := &distro.ImageOptions{
+		//Facts:        &facts.ImageOptions{APIType: facts.IBCLI_APITYPE},
+		Bootc: &distro.BootcRef{
+			Imgref:      &c.Imgref,
+			BuildImgref: &c.BuildImgref,
+		},
+	}
+
+	bp := blueprint.Blueprint(*c.Config)
+	if err := mg.Generate(&bp, img.Distro, img.ImgType, img.Arch, imgOpts); err != nil {
+		return nil, err
+	}
+
+	return osbuildManifestBuf.Bytes(), nil
 }
 
 var (

@@ -21,11 +21,9 @@ import (
 	"github.com/osbuild/images/pkg/arch"
 	"github.com/osbuild/images/pkg/cloud"
 	"github.com/osbuild/images/pkg/cloud/awscloud"
-	"github.com/osbuild/images/pkg/container"
 	"github.com/osbuild/images/pkg/dnfjson"
 	"github.com/osbuild/images/pkg/experimentalflags"
 	"github.com/osbuild/images/pkg/manifest"
-	"github.com/osbuild/images/pkg/osbuild"
 	"github.com/osbuild/images/pkg/rpmmd"
 
 	"github.com/osbuild/bootc-image-builder/bib/internal/buildconfig"
@@ -112,59 +110,65 @@ func getContainerSize(imgref string) (uint64, error) {
 }
 
 func makeManifest(c *ManifestConfig, solver *dnfjson.Solver, cacheRoot string) (manifest.OSBuildManifest, map[string][]rpmmd.RepoConfig, error) {
-	mani, err := Manifest(c)
-	if err != nil {
-		return nil, nil, fmt.Errorf("cannot get manifest: %w", err)
-	}
-
-	// depsolve packages
-	depsolvedSets := make(map[string]dnfjson.DepsolveResult)
-	depsolvedRepos := make(map[string][]rpmmd.RepoConfig)
-	for name, pkgSet := range mani.GetPackageSetChains() {
-		res, err := solver.Depsolve(pkgSet, 0)
+	/*
+		mani, err := Manifest(c)
 		if err != nil {
-			return nil, nil, fmt.Errorf("cannot depsolve: %w", err)
+			return nil, nil, fmt.Errorf("cannot get manifest: %w", err)
 		}
-		depsolvedSets[name] = *res
-		depsolvedRepos[name] = res.Repos
-	}
 
-	// Resolve container - the normal case is that host and target
-	// architecture are the same. However it is possible to build
-	// cross-arch images by using qemu-user. This will run everything
-	// (including the build-root) with the target arch then, it
-	// is fast enough (given that it's mostly I/O and all I/O is
-	// run naively via syscall translation)
-
-	// XXX: should NewResolver() take "arch.Arch"?
-	resolver := container.NewResolver(c.Architecture.String())
-
-	containerSpecs := make(map[string][]container.Spec)
-	for plName, sourceSpecs := range mani.GetContainerSourceSpecs() {
-		for _, c := range sourceSpecs {
-			resolver.Add(c)
-		}
-		specs, err := resolver.Finish()
-		if err != nil {
-			return nil, nil, fmt.Errorf("cannot resolve containers: %w", err)
-		}
-		for _, spec := range specs {
-			if spec.Arch != c.Architecture {
-				return nil, nil, fmt.Errorf("image found is for unexpected architecture %q (expected %q), if that is intentional, please make sure --target-arch matches", spec.Arch, c.Architecture)
+		// depsolve packages
+		depsolvedSets := make(map[string]dnfjson.DepsolveResult)
+		depsolvedRepos := make(map[string][]rpmmd.RepoConfig)
+		for name, pkgSet := range mani.GetPackageSetChains() {
+			res, err := solver.Depsolve(pkgSet, 0)
+			if err != nil {
+				return nil, nil, fmt.Errorf("cannot depsolve: %w", err)
 			}
+			depsolvedSets[name] = *res
+			depsolvedRepos[name] = res.Repos
 		}
-		containerSpecs[plName] = specs
-	}
 
-	var opts manifest.SerializeOptions
-	if c.UseLibrepo {
-		opts.RpmDownloader = osbuild.RpmDownloaderLibrepo
-	}
-	mf, err := mani.Serialize(depsolvedSets, containerSpecs, nil, &opts)
-	if err != nil {
-		return nil, nil, fmt.Errorf("[ERROR] manifest serialization failed: %s", err.Error())
-	}
-	return mf, depsolvedRepos, nil
+		// Resolve container - the normal case is that host and target
+		// architecture are the same. However it is possible to build
+		// cross-arch images by using qemu-user. This will run everything
+		// (including the build-root) with the target arch then, it
+		// is fast enough (given that it's mostly I/O and all I/O is
+		// run naively via syscall translation)
+
+		// XXX: should NewResolver() take "arch.Arch"?
+		resolver := container.NewResolver(c.Architecture.String())
+
+		containerSpecs := make(map[string][]container.Spec)
+		for plName, sourceSpecs := range mani.GetContainerSourceSpecs() {
+			for _, c := range sourceSpecs {
+				resolver.Add(c)
+			}
+			specs, err := resolver.Finish()
+			if err != nil {
+				return nil, nil, fmt.Errorf("cannot resolve containers: %w", err)
+			}
+			for _, spec := range specs {
+				if spec.Arch != c.Architecture {
+					return nil, nil, fmt.Errorf("image found is for unexpected architecture %q (expected %q), if that is intentional, please make sure --target-arch matches", spec.Arch, c.Architecture)
+				}
+			}
+			containerSpecs[plName] = specs
+		}
+
+		var opts manifest.SerializeOptions
+		if c.UseLibrepo {
+			opts.RpmDownloader = osbuild.RpmDownloaderLibrepo
+		}
+		mf, err := mani.Serialize(depsolvedSets, containerSpecs, nil, &opts)
+		if err != nil {
+			return nil, nil, fmt.Errorf("[ERROR] manifest serialization failed: %s", err.Error())
+		}
+		return mf, depsolvedRepos, nil
+	*/
+	println("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+	mf, err := manifestViaGenericDistrosYAML(c, createRand())
+	// XXX: add depsolvedRepos
+	return mf, nil, err
 }
 
 func saveManifest(ms manifest.OSBuildManifest, fpath string) (err error) {
