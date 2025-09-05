@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -264,13 +263,11 @@ func manifestFromCobra(cmd *cobra.Command, args []string, pbar progress.Progress
 			return nil, nil, err
 		}
 
-		var buf bytes.Buffer
 		repos, err := reporegistry.New(nil, []fs.FS{repos.FS})
 		if err != nil {
 			return nil, nil, err
 		}
 		mg, err := manifestgen.New(repos, &manifestgen.Options{
-			Output: &buf,
 			// XXX: hack to skip repo loading for the bootc image.
 			// We need to add a SkipRepositories or similar to
 			// manifestgen instead to make this clean
@@ -283,10 +280,11 @@ func manifestFromCobra(cmd *cobra.Command, args []string, pbar progress.Progress
 		if err != nil {
 			return nil, nil, err
 		}
-		if err := mg.Generate(config, distro, imgType, archi, nil); err != nil {
+		buf, err := mg.Generate(config, imgType, nil)
+		if err != nil {
 			return nil, nil, err
 		}
-		return buf.Bytes(), nil, nil
+		return buf, nil, nil
 	}
 
 	container, err := podman_container.New(imgref)
