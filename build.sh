@@ -8,6 +8,7 @@ CONTAINERS_STORAGE_THIN_TAGS="containers_image_openpgp exclude_graphdriver_btrfs
 
 cd bib
 set -x
+go generate ./...
 go build -tags "${CONTAINERS_STORAGE_THIN_TAGS}" -o ../bin/bootc-image-builder ./cmd/bootc-image-builder
 
 # expand the list as we support more architectures

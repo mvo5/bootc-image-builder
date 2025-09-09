@@ -46,15 +46,6 @@ const (
 	containerSizeToDiskSizeMultiplier = 2
 )
 
-// all possible locations for the bib's distro definitions
-// ./data/defs and ./bib/data/defs are for development
-// /usr/share/bootc-image-builder/defs is for the production, containerized version
-var distroDefPaths = []string{
-	"./data/defs",
-	"./bib/data/defs",
-	"/usr/share/bootc-image-builder/defs",
-}
-
 var (
 	osGetuid = os.Getuid
 	osGetgid = os.Getgid
@@ -335,7 +326,6 @@ func manifestFromCobra(cmd *cobra.Command, args []string, pbar progress.Progress
 		Imgref:          imgref,
 		BuildImgref:     buildImgref,
 		RootfsMinsize:   cntSize * containerSizeToDiskSizeMultiplier,
-		DistroDefPaths:  distroDefPaths,
 		SourceInfo:      sourceinfo,
 		BuildSourceInfo: buildSourceinfo,
 		RootFSType:      rootfsType,

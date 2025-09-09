@@ -11,30 +11,44 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const testDefLocation = "test_defs"
+func mockDefsLocation(t *testing.T) {
+	root, err := os.OpenRoot("./test_defs")
+	if err != nil {
+		panic(err)
+	}
+	saved := defs
+	defs = root.FS()
+	t.Cleanup(func() { defs = saved })
+}
 
 func TestLoadSimple(t *testing.T) {
-	def, err := LoadImageDef([]string{testDefLocation}, "fedoratest", "41", "anaconda-iso")
+	mockDefsLocation(t)
+
+	def, err := LoadImageDef("fedoratest", "41", "anaconda-iso")
 	require.NoError(t, err)
 	assert.NotEmpty(t, def.Packages)
 }
 
 func TestLoadFuzzy(t *testing.T) {
-	def, err := LoadImageDef([]string{testDefLocation}, "fedoratest", "99", "anaconda-iso")
+	mockDefsLocation(t)
+
+	def, err := LoadImageDef("fedoratest", "99", "anaconda-iso")
 	require.NoError(t, err)
 	assert.NotEmpty(t, def.Packages)
 }
 
 func TestLoadUnhappy(t *testing.T) {
-	_, err := LoadImageDef([]string{testDefLocation}, "lizard", "42", "anaconda-iso")
+	mockDefsLocation(t)
+
+	_, err := LoadImageDef("lizard", "42", "anaconda-iso")
 	assert.ErrorContains(t, err, "could not find def file for distro lizard-42")
-	_, err = LoadImageDef([]string{testDefLocation}, "fedoratest", "0", "anaconda-iso")
+	_, err = LoadImageDef("fedoratest", "0", "anaconda-iso")
 	assert.ErrorContains(t, err, "could not find def file for distro fedoratest-0")
 
-	_, err = LoadImageDef([]string{testDefLocation}, "fedoratest", "41", "anaconda-disk")
+	_, err = LoadImageDef("fedoratest", "41", "anaconda-disk")
 	assert.ErrorContains(t, err, "could not find def for distro fedoratest and image type anaconda-disk")
 
-	_, err = LoadImageDef([]string{testDefLocation}, "fedoratest", "xxx", "anaconda-disk")
+	_, err = LoadImageDef("fedoratest", "xxx", "anaconda-disk")
 	assert.ErrorContains(t, err, `cannot parse wanted version string: `)
 }
 

@@ -1,7 +1,9 @@
 package distrodef
 
 import (
+	"embed"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +13,15 @@ import (
 
 	"github.com/hashicorp/go-version"
 )
+
+// Our distrodefs contain symlinks so we need to copy them over here
+// and resolve those symlinks.
+//
+//go:generate cp -RL ../../data/defs/ ./
+//go:embed defs/*.yaml
+var embeddedDefs embed.FS
+
+var defs fs.FS = embeddedDefs
 
 // ImageDef is a structure containing extra information needed to build an image that cannot be extracted
 // from the container image itself. Currently, this is only the list of packages needed for the installer
@@ -78,7 +89,23 @@ func loadFile(defDirs []string, distro, ver string) ([]byte, error) {
 }
 
 // Loads a definition file for a given distro and image type
-func LoadImageDef(defDirs []string, distro, ver, it string) (*ImageDef, error) {
+func LoadImageDef(distro, ver, it string) (*ImageDef, error) {
+	// because we are lazy we just create a copy of our buildin
+	// distro defs
+	tmpdir, err := os.MkdirTemp("", "bib-distrodefs")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tmpdir)
+
+	if err := os.CopyFS(tmpdir, defs); err != nil {
+		return nil, err
+	}
+
+	// we only need a single dir, our code supports multiple
+	// search paths but we do not use them and we should simplify
+	// the code
+	defDirs := []string{filepath.Join(tmpdir, "defs")}
 	data, err := loadFile(defDirs, distro, ver)
 	if err != nil {
 		return nil, err
